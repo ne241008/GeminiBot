@@ -6,6 +6,7 @@ import express from "express";
 
 dotenv.config();
 
+// Render用Webサーバー
 const app = express();
 const port = process.env.PORT || 3000;
 
@@ -17,6 +18,7 @@ app.listen(port, "0.0.0.0", () => {
   console.log(`Web server listening on port ${port}`);
 });
 
+// 環境変数の確認
 if (!process.env.DISCORD_TOKEN) {
   throw new Error("DISCORD_TOKEN が設定されていません。");
 }
@@ -25,6 +27,7 @@ if (!process.env.GEMINI_API_KEY) {
   throw new Error("GEMINI_API_KEY が設定されていません。");
 }
 
+// Gemini設定
 const geminiModel = "gemini-3-flash-preview";
 const jokeCommandName = "ジョーク";
 const jokePrompt =
@@ -34,6 +37,7 @@ const ai = new GoogleGenAI({
   apiKey: process.env.GEMINI_API_KEY,
 });
 
+// Discord Bot
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
@@ -51,6 +55,7 @@ async function generateGeminiText(prompt) {
   return response.text ?? "返答を生成できませんでした。";
 }
 
+// Bot起動時
 client.once(Events.ClientReady, async (readyClient) => {
   await readyClient.application.commands.set([
     {
@@ -63,6 +68,7 @@ client.once(Events.ClientReady, async (readyClient) => {
   console.log(`/${jokeCommandName} コマンドを登録しました`);
 });
 
+// /ジョーク コマンド
 client.on(Events.InteractionCreate, async (interaction) => {
   if (!interaction.isChatInputCommand()) return;
   if (interaction.commandName !== jokeCommandName) return;
@@ -73,7 +79,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
     const text = await generateGeminiText(jokePrompt);
     await interaction.editReply(text.slice(0, 2000));
   } catch (error) {
-    console.error(error);
+    console.error("Gemini処理エラー:", error);
 
     if (interaction.deferred || interaction.replied) {
       await interaction.editReply("エラーが発生しました。");
@@ -83,6 +89,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
   }
 });
 
+// 投稿された画像の色を反転して返信
 client.on(Events.MessageCreate, async (message) => {
   if (message.author.bot) return;
   if (message.attachments.size === 0) return;
@@ -105,15 +112,25 @@ client.on(Events.MessageCreate, async (message) => {
       const buffer = Buffer.from(arrayBuffer);
 
       const image = await Jimp.read(buffer);
-      const width = image.bitmap.width;
-      const height = image.bitmap.height;
 
-      await message.reply(
-        `${attachment.name ?? "画像"} の画像サイズは **${width} × ${height}** ピクセルです。`,
-      );
+      // 色を反転
+      image.invert();
+
+      // 反転後の画像をPNG形式のBufferにする
+      const outputBuffer = await image.getBuffer("image/png");
+
+      await message.reply({
+        content: "画像の色を反転しました。",
+        files: [
+          {
+            attachment: outputBuffer,
+            name: "inverted.png",
+          },
+        ],
+      });
     } catch (error) {
       console.error("画像処理エラー:", error);
-      await message.reply("画像の読み込みに失敗しました。");
+      await message.reply("画像の処理に失敗しました。");
     }
   }
 });
