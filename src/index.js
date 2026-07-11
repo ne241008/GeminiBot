@@ -1,79 +1,51 @@
 
 import { Client, Events, GatewayIntentBits } from "discord.js";
 import dotenv from "dotenv";
-import { GoogleGenAI } from "@google/genai";
-import express from "express";
+import { Jimp } from "jimp";
 
-const app = express();
-const port = process.env.PORT || 3000;
 dotenv.config();
 
-app.get("/", (req, res) => {
-  res.send("GeminiBot is running");
-});
-
-app.listen(port, "0.0.0.0", () => {
-  console.log(`Web server listening on port ${port}`);
-});
-
-if (!process.env.DISCORD_TOKEN) {
-  throw new Error("DISCORD_TOKEN が .env に設定されていません。");
-}
-
-if (!process.env.GEMINI_API_KEY) {
-  throw new Error("GEMINI_API_KEY が .env に設定されていません。");
-}
-
-const geminiModel = "gemini-3-flash-preview";
-const jokeCommandName = "ジョーク";
-const jokePrompt =
-  "日本語で短い冗談を1つだけ作ってください。この冗談は、会話の掛け合いではなく、一文にしてください。説明は不要です。";
-
-const ai = new GoogleGenAI({
-  apiKey: process.env.GEMINI_API_KEY,
-});
-
 const client = new Client({
-  intents: [GatewayIntentBits.Guilds],
+  intents: [
+    GatewayIntentBits.Guilds,
+    GatewayIntentBits.GuildMessages,
+    GatewayIntentBits.MessageContent,
+  ],
 });
 
-async function generateGeminiText(prompt) {
-  const response = await ai.models.generateContent({
-    model: geminiModel,
-    contents: prompt,
-  });
-
-  return response.text ?? "返答を生成できませんでした。";
-}
-
-client.once(Events.ClientReady, async (readyClient) => {
-  await readyClient.application.commands.set([
-    {
-      name: jokeCommandName,
-      description: "短い冗談を返します",
-    },
-  ]);
-
+client.once(Events.ClientReady, (readyClient) => {
   console.log(`${readyClient.user.tag} としてログインしました`);
-  console.log(`/${jokeCommandName} コマンドを登録しました`);
 });
 
-client.on(Events.InteractionCreate, async (interaction) => {
-  if (!interaction.isChatInputCommand()) return;
-  if (interaction.commandName !== jokeCommandName) return;
+client.on("messageCreate", async (message) => {
+  if (message.author.bot) return;
+  if (message.attachments.size === 0) return;
 
-  try {
-    await interaction.deferReply(); // 応答を遅延させることで、処理中であることを示す
+  for (const attachment of message.attachments.values()) {
+    const isImage =
+      attachment.contentType?.startsWith("image/") ||
+      /\.(png|jpe?g|gif|webp)$/i.test(attachment.name ?? "");
 
-    const text = await generateGeminiText(jokePrompt);
-    await interaction.editReply(text.slice(0, 2000)); // 応答を編集して返す。Discordのメッセージは2000文字までなので超えた場合は切り捨てる。
-  } catch (error) {
-    console.error(error);
+    if (!isImage) continue;
 
-    if (interaction.deferred || interaction.replied) {
-      await interaction.editReply("エラーが発生しました。");
-    } else {
-      await interaction.reply("エラーが発生しました。");
+    console.log("画像ファイル名:", attachment.name);
+    console.log("画像URL:", attachment.url);
+
+    try {
+      const response = await fetch(attachment.url);
+      const arrayBuffer = await response.arrayBuffer();
+      const buffer = Buffer.from(arrayBuffer);
+
+      const image = await Jimp.read(buffer);
+      const width = image.bitmap.width;
+      const height = image.bitmap.height;
+
+      await message.reply(
+        `${attachment.name} の画像サイズは **${width} x ${height}** ピクセルです。`,
+      );
+    } catch (err) {
+      console.error(err);
+      await message.reply("画像の読み込みに失敗しました。");
     }
   }
 });
